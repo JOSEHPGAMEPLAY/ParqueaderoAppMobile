@@ -1,5 +1,5 @@
 {
-  "name": "Remix: Escáner de Placas multiplataforma",
+  "name": "Escáner de Placas",
   "description": "Escanea y analiza placas de vehículos en tiempo real con la cámara y Gemini AI.",
   "requestFramePermissions": [],
   "majorCapabilities": [

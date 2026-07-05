@@ -251,7 +251,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             try {
-                // 1. Prepare Daily Parking Records (consolidation by date)
+                // 1. Prepare Daily Parking Records (consolidation by date with nested parkingRecords and nested comments)
                 val calendar = Calendar.getInstance()
                 val affectedDates = unsyncedScans.map { scan ->
                     calendar.timeInMillis = scan.timestamp
@@ -263,7 +263,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }.distinct()
 
                 val dailyRecordsList = affectedDates.map { dateMillis ->
-                    val scansInDay = currentHistory.filter { scan ->
+                    val scansInDayAll = currentHistory.filter { scan ->
                         calendar.timeInMillis = scan.timestamp
                         calendar.set(Calendar.HOUR_OF_DAY, 0)
                         calendar.set(Calendar.MINUTE, 0)
@@ -271,66 +271,107 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         calendar.set(Calendar.MILLISECOND, 0)
                         calendar.timeInMillis == dateMillis
                     }
-                    val totalRevenue = scansInDay.sumOf { it.paidAmount ?: 0.0 }.toInt()
-                    DailyParkingRecordItem(
-                        date = dateMillis,
-                        totalEarned = totalRevenue
-                    )
-                }
+                    val totalRevenue = scansInDayAll.sumOf { it.paidAmount ?: 0.0 }.toInt()
 
-                // 2. Prepare Parking Records (individual vehicles)
-                val parkingRecordsList = unsyncedScans.map { scan ->
-                    calendar.timeInMillis = scan.timestamp
-                    calendar.set(Calendar.HOUR_OF_DAY, 0)
-                    calendar.set(Calendar.MINUTE, 0)
-                    calendar.set(Calendar.SECOND, 0)
-                    calendar.set(Calendar.MILLISECOND, 0)
-                    val startOfDay = calendar.timeInMillis
+                    // Filter only UNSYNCED scans of this specific day to send in the payload
+                    val unsyncedScansInDay = unsyncedScans.filter { scan ->
+                        calendar.timeInMillis = scan.timestamp
+                        calendar.set(Calendar.HOUR_OF_DAY, 0)
+                        calendar.set(Calendar.MINUTE, 0)
+                        calendar.set(Calendar.SECOND, 0)
+                        calendar.set(Calendar.MILLISECOND, 0)
+                        calendar.timeInMillis == dateMillis
+                    }
 
-                    ParkingRecordItem(
-                        localId = scan.id.toString(),
-                        plateNumber = scan.plateText,
-                        entryTime = scan.timestamp,
-                        exitTime = scan.exitTime,
-                        price = scan.paidAmount ?: 0.0,
-                        isFree = !scan.hasTicket,
-                        date = startOfDay
-                    )
-                }
-
-                // 3. Prepare Comment Parking Records
-                val commentsList = mutableListOf<CommentParkingRecordItem>()
-                unsyncedScans.forEach { scan ->
-                    val parsedComments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
-                    parsedComments.forEach { comment ->
-                        commentsList.add(
+                    val parkingRecordsInDay = unsyncedScansInDay.map { scan ->
+                        val parsedComments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
+                        // Only send comments that haven't been synchronized yet
+                        val unsyncedComments = parsedComments.filter { !it.isSynced }
+                        val commentsPayload = unsyncedComments.map { comment ->
                             CommentParkingRecordItem(
-                                localParkingRecordId = scan.id.toString(),
+                                localId = comment.localId ?: java.util.UUID.randomUUID().toString(),
+                                remoteId = comment.remoteId,
                                 message = comment.message,
                                 timestamp = comment.timestamp
                             )
+                        }
+
+                        ParkingRecordItem(
+                            localId = scan.id.toString(),
+                            remoteId = scan.remoteId,
+                            plateNumber = scan.plateText,
+                            entryTime = scan.timestamp,
+                            exitTime = scan.exitTime,
+                            price = scan.paidAmount ?: 0.0,
+                            isFree = !scan.hasTicket,
+                            comments = commentsPayload
                         )
                     }
+
+                    DailyParkingRecordItem(
+                        localId = dateMillis.toString(), // Grouped date timestamp acts as localId
+                        remoteId = null,
+                        date = dateMillis,
+                        parkingRecords = parkingRecordsInDay,
+                        totalEarned = totalRevenue
+                    )
                 }
 
                 // Build full payload
                 val payload = WebSyncPayload(
                     deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
-                    dailyRecords = dailyRecordsList,
-                    parkingRecords = parkingRecordsList,
-                    comments = commentsList
+                    dailyRecords = dailyRecordsList
                 )
 
-                _syncStatusMessage.value = "Sincronizando ${parkingRecordsList.size} registros de parqueo y ${commentsList.size} comentarios..."
+                val totalParkingRecordsCount = dailyRecordsList.sumOf { it.parkingRecords.size }
+                val totalCommentsCount = dailyRecordsList.flatMap { it.parkingRecords }.sumOf { it.comments.size }
+                _syncStatusMessage.value = "Sincronizando $totalParkingRecordsCount registros de parqueo y $totalCommentsCount comentarios..."
 
                 // Try actual sync via Retrofit Sync API
                 val response = SyncClient.executeRealSync(currentToken, payload)
 
                 _isSyncing.value = false
                 if (response.success) {
+                    // Extract flat mapping map of localId -> remoteId from nested dailyRecords response structure
+                    val parkingMapping = mutableMapOf<String, String>()
+                    val commentMapping = mutableMapOf<String, String>()
+
+                    response.idMappings?.dailyRecords?.forEach { daily ->
+                        daily.parkingRecords?.forEach { pr ->
+                            parkingMapping[pr.localId] = pr.remoteId
+                            pr.comments?.forEach { c ->
+                                commentMapping[c.localId] = c.remoteId
+                            }
+                        }
+                    }
+
                     // Update database records to match Synced state!
                     unsyncedScans.forEach { scan ->
-                        repository.update(scan.copy(isSynced = true))
+                        val remoteId = parkingMapping[scan.id.toString()] ?: scan.remoteId
+                        
+                        // Parse existing comments and update their individual sync states
+                        val currentComments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
+                        val updatedComments = currentComments.map { comment ->
+                            val commentId = comment.localId ?: ""
+                            val commRemoteId = commentMapping[commentId] ?: comment.remoteId
+                            if (commRemoteId != null) {
+                                comment.copy(isSynced = true, remoteId = commRemoteId)
+                            } else {
+                                comment
+                            }
+                        }
+
+                        // Determine if all comments are now synced
+                        val allCommentsSynced = updatedComments.all { it.isSynced }
+
+                        // A parking record is not "fully synced" until it has an exit time (exitTime != null)
+                        val isFullySynced = (scan.exitTime != null) && allCommentsSynced
+
+                        repository.update(scan.copy(
+                            isSynced = isFullySynced,
+                            remoteId = remoteId,
+                            notes = NotesParser.toJson(updatedComments)
+                        ))
                     }
                     _syncStatusMessage.value = "¡Sincronizado con éxito! Registros: ${response.recordsProcessed}"
                 } else {
@@ -346,7 +387,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     
                     // Offline simulation success: Update database records to match Synced state!
                     unsyncedScans.forEach { scan ->
-                        repository.update(scan.copy(isSynced = true))
+                        val currentComments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
+                        val updatedComments = currentComments.map { comment ->
+                            comment.copy(isSynced = true, remoteId = comment.remoteId ?: "sim_comment_${java.util.UUID.randomUUID().toString().take(6)}")
+                        }
+                        val isFullySynced = scan.exitTime != null
+                        repository.update(scan.copy(
+                            isSynced = isFullySynced,
+                            remoteId = scan.remoteId ?: "sim_record_${java.util.UUID.randomUUID().toString().take(6)}",
+                            notes = NotesParser.toJson(updatedComments)
+                        ))
                     }
                     
                     _isSyncing.value = false

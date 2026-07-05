@@ -20,7 +20,8 @@ data class ScanResult(
     val hasTicket: Boolean = true,
     val paidAmount: Double? = null,
     val status: String = "ACTIVE", // "ACTIVE" = inside lot, "COMPLETED" = exited
-    val isSynced: Boolean = false
+    val isSynced: Boolean = false,
+    val remoteId: String? = null
 )
 
 @Dao
@@ -47,7 +48,7 @@ interface ScanResultDao {
     suspend fun deleteAllScans()
 }
 
-@Database(entities = [ScanResult::class], version = 3, exportSchema = false)
+@Database(entities = [ScanResult::class], version = 4, exportSchema = false)
 abstract class ScanDatabase : RoomDatabase() {
     abstract fun scanResultDao(): ScanResultDao
 

@@ -39,9 +39,12 @@ data class MobileRegistrationResponse(
 
 @JsonClass(generateAdapter = true)
 data class NoteComment(
+    @Json(name = "localId") val localId: String? = null,
+    @Json(name = "remoteId") val remoteId: String? = null,
     @Json(name = "message") val message: String,
     @Json(name = "authorName") val authorName: String,
-    @Json(name = "timestamp") val timestamp: Long
+    @Json(name = "timestamp") val timestamp: Long,
+    @Json(name = "isSynced") val isSynced: Boolean = false
 )
 
 object NotesParser {
@@ -52,14 +55,22 @@ object NotesParser {
     fun parse(notesStr: String?, defaultAuthor: String = "Operador", defaultTime: Long = System.currentTimeMillis()): List<NoteComment> {
         if (notesStr.isNullOrBlank()) return emptyList()
         val trimmed = notesStr.trim()
-        if (trimmed.startsWith("[")) {
+        val list = if (trimmed.startsWith("[")) {
             try {
-                return adapter.fromJson(trimmed) ?: emptyList()
+                adapter.fromJson(trimmed) ?: emptyList()
             } catch (e: Exception) {
-                // Return plain text parsing fallback below
+                listOf(NoteComment(message = trimmed, authorName = defaultAuthor, timestamp = defaultTime))
+            }
+        } else {
+            listOf(NoteComment(message = trimmed, authorName = defaultAuthor, timestamp = defaultTime))
+        }
+        return list.map {
+            if (it.localId.isNullOrBlank()) {
+                it.copy(localId = java.util.UUID.randomUUID().toString())
+            } else {
+                it
             }
         }
-        return listOf(NoteComment(message = trimmed, authorName = defaultAuthor, timestamp = defaultTime))
     }
 
     fun toJson(list: List<NoteComment>): String {
@@ -68,35 +79,63 @@ object NotesParser {
 }
 
 @JsonClass(generateAdapter = true)
-data class DailyParkingRecordItem(
-    @Json(name = "date") val date: Long, // Start of day timestamp
-    @Json(name = "totalEarned") val totalEarned: Int
-)
-
-@JsonClass(generateAdapter = true)
-data class ParkingRecordItem(
-    @Json(name = "localId") val localId: String,
-    @Json(name = "plateNumber") val plateNumber: String,
-    @Json(name = "entryTime") val entryTime: Long,
-    @Json(name = "exitTime") val exitTime: Long?,
-    @Json(name = "price") val price: Double,
-    @Json(name = "isFree") val isFree: Boolean,
-    @Json(name = "date") val date: Long // Start of day timestamp for linking to DailyParkingRecord
-)
-
-@JsonClass(generateAdapter = true)
 data class CommentParkingRecordItem(
-    @Json(name = "localParkingRecordId") val localParkingRecordId: String, // Maps to localId of the ParkingRecord
+    @Json(name = "localId") val localId: String,
+    @Json(name = "remoteId") val remoteId: String? = null,
     @Json(name = "message") val message: String,
     @Json(name = "timestamp") val timestamp: Long
 )
 
 @JsonClass(generateAdapter = true)
+data class ParkingRecordItem(
+    @Json(name = "localId") val localId: String,
+    @Json(name = "remoteId") val remoteId: String? = null,
+    @Json(name = "plateNumber") val plateNumber: String,
+    @Json(name = "entryTime") val entryTime: Long,
+    @Json(name = "exitTime") val exitTime: Long?,
+    @Json(name = "price") val price: Double,
+    @Json(name = "isFree") val isFree: Boolean,
+    @Json(name = "comments") val comments: List<CommentParkingRecordItem>
+)
+
+@JsonClass(generateAdapter = true)
+data class DailyParkingRecordItem(
+    @Json(name = "localId") val localId: String,
+    @Json(name = "remoteId") val remoteId: String? = null,
+    @Json(name = "date") val date: Long, // Start of day timestamp
+    @Json(name = "parkingRecords") val parkingRecords: List<ParkingRecordItem>,
+    @Json(name = "totalEarned") val totalEarned: Int
+)
+
+@JsonClass(generateAdapter = true)
 data class WebSyncPayload(
     @Json(name = "deviceModel") val deviceModel: String,
-    @Json(name = "dailyRecords") val dailyRecords: List<DailyParkingRecordItem>,
-    @Json(name = "parkingRecords") val parkingRecords: List<ParkingRecordItem>,
-    @Json(name = "comments") val comments: List<CommentParkingRecordItem>
+    @Json(name = "dailyRecords") val dailyRecords: List<DailyParkingRecordItem>
+)
+
+@JsonClass(generateAdapter = true)
+data class CommentMapping(
+    @Json(name = "localId") val localId: String,
+    @Json(name = "remoteId") val remoteId: String
+)
+
+@JsonClass(generateAdapter = true)
+data class ParkingRecordMapping(
+    @Json(name = "localId") val localId: String,
+    @Json(name = "remoteId") val remoteId: String,
+    @Json(name = "comments") val comments: List<CommentMapping>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class DailyRecordMapping(
+    @Json(name = "localId") val localId: String,
+    @Json(name = "remoteId") val remoteId: String,
+    @Json(name = "parkingRecords") val parkingRecords: List<ParkingRecordMapping>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class IdMappings(
+    @Json(name = "dailyRecords") val dailyRecords: List<DailyRecordMapping>? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -104,7 +143,8 @@ data class WebSyncResponse(
     @Json(name = "success") val success: Boolean,
     @Json(name = "message") val message: String,
     @Json(name = "recordsProcessed") val recordsProcessed: Int,
-    @Json(name = "serverTimestamp") val serverTimestamp: Long
+    @Json(name = "serverTimestamp") val serverTimestamp: Long,
+    @Json(name = "idMappings") val idMappings: IdMappings? = null
 )
 
 // --- Retrofit Endpoints ---
