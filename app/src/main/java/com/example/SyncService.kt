@@ -179,7 +179,7 @@ data class GitHubReleaseResponse(
 
 interface GithubApi {
     @retrofit2.http.GET
-    suspend fun getLatestRelease(@retrofit2.http.Url url: String): GitHubReleaseResponse
+    suspend fun getReleaseRaw(@retrofit2.http.Url url: String): okhttp3.ResponseBody
 }
 
 // --- API Client and Facilitator ---
@@ -258,6 +258,21 @@ object SyncClient {
      * Pulls latest release info from GitHub API
      */
     suspend fun fetchLatestRelease(url: String): GitHubReleaseResponse {
-        return githubApi.getLatestRelease(url)
+        val responseBody = githubApi.getReleaseRaw(url)
+        val jsonString = responseBody.string().trim()
+        
+        if (jsonString.startsWith("[")) {
+            val type = Types.newParameterizedType(List::class.java, GitHubReleaseResponse::class.java)
+            val adapter = moshi.adapter<List<GitHubReleaseResponse>>(type)
+            val list = adapter.fromJson(jsonString)
+            if (!list.isNullOrEmpty()) {
+                return list[0]
+            } else {
+                throw Exception("La lista de versiones de GitHub está vacía.")
+            }
+        } else {
+            val adapter = moshi.adapter(GitHubReleaseResponse::class.java)
+            return adapter.fromJson(jsonString) ?: throw Exception("No se pudo procesar la respuesta de versión de GitHub.")
+        }
     }
 }

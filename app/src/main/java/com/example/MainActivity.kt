@@ -1956,7 +1956,7 @@ fun MainScreen(
                             // Captured image thumbnail loaded via Coil
                             if (!scan.imagePath.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = scan.imagePath,
+                                    model = java.io.File(scan.imagePath),
                                     contentDescription = "Foto de Placa",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -2585,6 +2585,19 @@ fun MainScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
+                    
+                    if (!vehicle.imagePath.isNullOrBlank()) {
+                        AsyncImage(
+                            model = java.io.File(vehicle.imagePath),
+                            contentDescription = "Foto de Placa",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        )
+                    }
                     
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
                     
@@ -3947,6 +3960,37 @@ fun AutoRecordsView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Vehicle photo thumbnail in front of the plate badge
+                                    if (!scan.imagePath.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = java.io.File(scan.imagePath),
+                                            contentDescription = "Foto de Placa",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(54.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                .border(0.5.dp, MaterialTheme.colorScheme.onSurfaceVariant)
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(54.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.DirectionsCar,
+                                                contentDescription = "Sin foto",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
                                     // Metal style plate badge
                                     Box(
                                         modifier = Modifier
