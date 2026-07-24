@@ -100,8 +100,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     val showUpdateDialog = _showUpdateDialog.asStateFlow()
 
     private val _githubReleaseUrl = MutableStateFlow(
-        prefs.getString("github_release_url", "https://api.github.com/repos/usuario/repo/releases/latest") 
-            ?: "https://api.github.com/repos/usuario/repo/releases/latest"
+        run {
+            val defaultUrl = "https://api.github.com/repos/JOSEHPGAMEPLAY/ParqueaderoAppMobile/releases/latest"
+            val stored = prefs.getString("github_release_url", defaultUrl) ?: defaultUrl
+            if (stored.contains("usuario/repo") || stored == "https://api.github.com/repos/JOSEHPGAMEPLAY/ParqueaderoAppMobile/releases") {
+                prefs.edit().putString("github_release_url", defaultUrl).apply()
+                defaultUrl
+            } else {
+                stored
+            }
+        }
     )
     val githubReleaseUrl = _githubReleaseUrl.asStateFlow()
 
