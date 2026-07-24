@@ -21,13 +21,53 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      
+      - name: Crear archivo .env
+        run: touch .env
 
-      - name: Compilar
-        run: gradle assembleDebug
+      - name: Generar Keystore
+        run: |
+          keytool -genkeypair \
+          -keystore my-upload-key.jks \
+          -storetype JKS \
+          -storepass "${{ secrets.STORE_PASSWORD }}" \
+          -keypass "${{ secrets.KEY_PASSWORD }}" \
+          -alias "${{ secrets.KEY_ALIAS }}" \
+          -dname "CN=Jose Vera, OU=Development, O=Personal, L=Pamplona, ST=Norte de Santander, C=CO" \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000
 
-      - name: Subir APK
+      - name: Verificar Keystore
+        run: |
+          keytool -list -v \
+            -keystore my-upload-key.jks \
+            -storetype JKS \
+            -storepass "${{ secrets.STORE_PASSWORD }}"
+
+      - name: Variables
+        run: |
+          echo "KEYSTORE_PATH=${{ github.workspace }}/my-upload-key.jks" >> $GITHUB_ENV
+          echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+
+      - name: Ver archivos
+        run: ls -lah
+
+      - name: Compilar Release
+        run: gradle assembleRelease
+
+      - name: Guardar APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: app-release
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Guardar Keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-upload-key
+          path: my-upload-key.jks
