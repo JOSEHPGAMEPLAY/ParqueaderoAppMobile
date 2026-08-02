@@ -902,6 +902,18 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteNoteComment(scan: ScanResult, commentToDelete: NoteComment) {
+        viewModelScope.launch {
+            val author = _registeredUsername.value.ifBlank { "Operador" }
+            val existing = NotesParser.parse(scan.notes, author, scan.timestamp)
+            val updated = existing.filter { it.timestamp != commentToDelete.timestamp || it.message != commentToDelete.message }
+            repository.update(scan.copy(
+                notes = NotesParser.toJson(updated),
+                isSynced = false
+            ))
+        }
+    }
+
     fun deleteScan(scan: ScanResult) {
         viewModelScope.launch {
             repository.delete(scan)

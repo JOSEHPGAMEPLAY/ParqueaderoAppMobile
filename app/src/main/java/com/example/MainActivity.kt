@@ -128,6 +128,7 @@ fun MainScreen(
 
     var editedPlateText by remember { mutableStateOf("") }
     var currentSection by rememberSaveable { mutableStateOf(ScreenSection.CAR_RECORDS) }
+    val collapsedDatesMain = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
 
     LaunchedEffect(scanState) {
         if (scanState is ScanUiState.Success) {
@@ -1473,7 +1474,7 @@ fun MainScreen(
                                     Button(
                                         onClick = {
                                             viewModel.updateGithubReleaseUrl(inputGithubReleaseUrl)
-                                            viewModel.checkForUpdates(currentVersion = "1.0", forceShowSimulated = false)
+                                            viewModel.checkForUpdates(currentVersion = "1.0.1", forceShowSimulated = false)
                                             Toast.makeText(context, "Consultando actualizaciones en GitHub...", Toast.LENGTH_SHORT).show()
                                         },
                                         modifier = Modifier
@@ -1486,7 +1487,7 @@ fun MainScreen(
 
                                     OutlinedButton(
                                         onClick = {
-                                            viewModel.checkForUpdates(currentVersion = "1.0", forceShowSimulated = true)
+                                            viewModel.checkForUpdates(currentVersion = "1.0.1", forceShowSimulated = true)
                                         },
                                         modifier = Modifier
                                             .weight(1f)
@@ -1886,6 +1887,7 @@ fun MainScreen(
             }
         } else {
             groupedHistory.forEach { (dateHeader, scansInDay) ->
+                val isCollapsed = collapsedDatesMain[dateHeader] ?: false
                 item(key = "header_${dateHeader}") {
                     Box(
                         modifier = Modifier
@@ -1894,6 +1896,7 @@ fun MainScreen(
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
                             .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                            .clickable { collapsedDatesMain[dateHeader] = !isCollapsed }
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(
@@ -1901,12 +1904,21 @@ fun MainScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "📅 " + dateHeader.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() },
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isCollapsed) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "📅 " + dateHeader.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
                             val activeCount = scansInDay.count { it.status == "ACTIVE" }
                             val completedCount = scansInDay.count { it.status == "COMPLETED" }
                             val dayRevenue = scansInDay.sumOf { it.paidAmount ?: 0.0 }
@@ -1927,7 +1939,9 @@ fun MainScreen(
                         }
                     }
                 }
-                items(scansInDay, key = { it.id }) { scan ->
+                
+                if (!isCollapsed) {
+                    items(scansInDay, key = { it.id }) { scan ->
                     val isExpanded = expandedVehicleId == scan.id
                 val isNotesEditing = inlineNotesEditId == scan.id
 
@@ -2309,7 +2323,10 @@ fun MainScreen(
                                         }
                                     }
                                 } else {
-                                    NotesFeedView(notesStr = scan.notes)
+                                    NotesFeedView(
+                                        notesStr = scan.notes,
+                                        onDeleteComment = { comment -> viewModel.deleteNoteComment(scan, comment) }
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -2335,6 +2352,7 @@ fun MainScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -3298,6 +3316,7 @@ fun AutoRecordsView(
     onCheckoutClick: (ScanResult) -> Unit
 ) {
     val scanState by viewModel.scanState.collectAsStateWithLifecycle()
+    val collapsedDates = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -3922,17 +3941,33 @@ fun AutoRecordsView(
             }
         } else {
             groupedHistory.forEach { (dateHeader, scansInDay) ->
+                val isCollapsed = collapsedDates[dateHeader] ?: false
                 item {
-                    Text(
-                        text = dateHeader,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { collapsedDates[dateHeader] = !isCollapsed }
+                            .padding(top = 10.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = dateHeader,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Icon(
+                            imageVector = if (isCollapsed) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+                            contentDescription = if (isCollapsed) "Expandir" else "Colapsar",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
 
-                items(scansInDay, key = { it.id }) { scan ->
+                if (!isCollapsed) {
+                    items(scansInDay, key = { it.id }) { scan ->
                     var itemNotesValue by remember(scan.notes) { mutableStateOf(scan.notes ?: "") }
                     val isExpanded = expandedVehicleId == scan.id
                     val isEditingNotes = inlineNotesEditId == scan.id
@@ -3959,7 +3994,10 @@ fun AutoRecordsView(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     // Vehicle photo thumbnail in front of the plate badge
                                     if (!scan.imagePath.isNullOrBlank()) {
                                         AsyncImage(
@@ -4074,6 +4112,8 @@ fun AutoRecordsView(
                                         }
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.width(8.dp))
 
                                 if (scan.status == "ACTIVE") {
                                     // Direct action button: Cobrar / Give Departure without opening details
@@ -4200,7 +4240,10 @@ fun AutoRecordsView(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Box(modifier = Modifier.weight(1f)) {
-                                                    NotesFeedView(notesStr = scan.notes)
+                                                    NotesFeedView(
+                                                        notesStr = scan.notes,
+                                                        onDeleteComment = { comment -> viewModel.deleteNoteComment(scan, comment) }
+                                                    )
                                                 }
                                                 IconButton(
                                                     onClick = {
@@ -4225,13 +4268,31 @@ fun AutoRecordsView(
                                             Button(
                                                 onClick = { onCheckoutClick(scan) },
                                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                                                modifier = Modifier.fillMaxWidth().testTag("checkout_action_btn_${scan.plateText}"),
+                                                modifier = Modifier.weight(1f).height(38.dp).testTag("checkout_action_btn_${scan.plateText}"),
                                                 shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(4.dp)
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
                                             ) {
                                                 Icon(Icons.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.Black)
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Dar Salida (Cobrar)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                                Text("Dar Salida (Cobrar)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                            }
+
+                                            FilledTonalButton(
+                                                onClick = {
+                                                    viewModel.deleteScan(scan)
+                                                    Toast.makeText(context, "Registro eliminado permanentemente del dispositivo.", Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.filledTonalButtonColors(
+                                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                                ),
+                                                modifier = Modifier.weight(1f).height(38.dp).testTag("delete_single_scan_btn"),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Eliminar Registro", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     } else {
@@ -4261,6 +4322,7 @@ fun AutoRecordsView(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -4582,7 +4644,7 @@ fun SynchronizationView(
                         Button(
                             onClick = {
                                 viewModel.updateGithubReleaseUrl(inputGithubReleaseUrl)
-                                viewModel.checkForUpdates(currentVersion = "1.0", forceShowSimulated = false)
+                                viewModel.checkForUpdates(currentVersion = "1.0.1", forceShowSimulated = false)
                                 Toast.makeText(context, "Consultando actualizaciones en GitHub...", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.weight(1f).testTag("check_github_updates_button"),
@@ -4593,7 +4655,7 @@ fun SynchronizationView(
 
                         OutlinedButton(
                             onClick = {
-                                viewModel.checkForUpdates(currentVersion = "1.0", forceShowSimulated = true)
+                                viewModel.checkForUpdates(currentVersion = "1.0.1", forceShowSimulated = true)
                             },
                             modifier = Modifier.weight(1f).testTag("simulate_github_updates_button"),
                             shape = RoundedCornerShape(8.dp)
@@ -5426,7 +5488,11 @@ fun SimulationView(
 }
 
 @Composable
-fun NotesFeedView(notesStr: String?, modifier: Modifier = Modifier) {
+fun NotesFeedView(
+    notesStr: String?,
+    modifier: Modifier = Modifier,
+    onDeleteComment: ((NoteComment) -> Unit)? = null
+) {
     val comments = remember(notesStr) { NotesParser.parse(notesStr) }
     if (comments.isEmpty()) {
         Text(
@@ -5459,15 +5525,31 @@ fun NotesFeedView(notesStr: String?, modifier: Modifier = Modifier) {
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            val dateStr = remember(comment.timestamp) {
-                                val sdf = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault())
-                                sdf.format(java.util.Date(comment.timestamp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val dateStr = remember(comment.timestamp) {
+                                    val sdf = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault())
+                                    sdf.format(java.util.Date(comment.timestamp))
+                                }
+                                Text(
+                                    text = dateStr,
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (onDeleteComment != null) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    IconButton(
+                                        onClick = { onDeleteComment(comment) },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "Eliminar comentario",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
                             }
-                            Text(
-                                text = dateStr,
-                                fontSize = 9.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
