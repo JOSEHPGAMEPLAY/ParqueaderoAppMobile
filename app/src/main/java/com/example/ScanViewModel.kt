@@ -181,9 +181,31 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateApiBaseUrl(newUrl: String) {
-        prefs.edit().putString("api_base_url", newUrl).apply()
-        _apiBaseUrl.value = newUrl
-        SyncClient.baseApiUrl = newUrl
+        val formattedUrl = if (newUrl.isNotBlank() && !newUrl.endsWith("/")) "$newUrl/" else newUrl
+        val oldUrl = _apiBaseUrl.value
+        prefs.edit().putString("api_base_url", formattedUrl).apply()
+        _apiBaseUrl.value = formattedUrl
+        SyncClient.baseApiUrl = formattedUrl
+        if (oldUrl.trimEnd('/') != formattedUrl.trimEnd('/')) {
+            markAllAsUnsynced()
+        }
+    }
+
+    fun markAllAsUnsynced() {
+        viewModelScope.launch {
+            val currentScans = scanHistory.value
+            currentScans.forEach { scan ->
+                val comments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
+                val resetComments = comments.map { it.copy(isSynced = false, remoteId = null) }
+                repository.update(scan.copy(
+                    isSynced = false,
+                    remoteId = null,
+                    notes = NotesParser.toJson(resetComments)
+                ))
+            }
+            _syncStatusMessage.value = "Estado de sincronización restablecido. Todos los registros están listos para enviarse al backend."
+            _syncStatusError.value = false
+        }
     }
 
     fun registerDeviceAccount(username: String, masterKey: String, simulateIfServerOffline: Boolean = true) {
@@ -236,7 +258,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun syncWithBackend(simulateIfServerOffline: Boolean = true) {
+    fun syncWithBackend(simulateIfServerOffline: Boolean = false) {
         val currentToken = _jwtToken.value
         if (currentToken.isEmpty()) {
             _syncStatusError.value = true
@@ -293,9 +315,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
                     val parkingRecordsInDay = unsyncedScansInDay.map { scan ->
                         val parsedComments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
-                        // Only send comments that haven't been synchronized yet
-                        val unsyncedComments = parsedComments.filter { !it.isSynced }
-                        val commentsPayload = unsyncedComments.map { comment ->
+                        // Send all comments for this scan, assigning stable localIds if needed
+                        val commentsPayload = parsedComments.map { comment ->
                             CommentParkingRecordItem(
                                 localId = comment.localId ?: java.util.UUID.randomUUID().toString(),
                                 remoteId = comment.remoteId,
@@ -353,7 +374,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // Update database records to match Synced state!
+                    // Update database records to match Synced state ONLY upon real server success!
                     unsyncedScans.forEach { scan ->
                         val remoteId = parkingMapping[scan.id.toString()] ?: scan.remoteId
                         
@@ -365,23 +386,18 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                             if (commRemoteId != null) {
                                 comment.copy(isSynced = true, remoteId = commRemoteId)
                             } else {
-                                comment
+                                comment.copy(isSynced = true)
                             }
                         }
 
-                        // Determine if all comments are now synced
-                        val allCommentsSynced = updatedComments.all { it.isSynced }
-
-                        // A parking record is not "fully synced" until it has an exit time (exitTime != null)
-                        val isFullySynced = (scan.exitTime != null) && allCommentsSynced
-
+                        // Mark scan as synced when the backend confirms processing!
                         repository.update(scan.copy(
-                            isSynced = isFullySynced,
+                            isSynced = true,
                             remoteId = remoteId,
                             notes = NotesParser.toJson(updatedComments)
                         ))
                     }
-                    _syncStatusMessage.value = "¡Sincronizado con éxito! Registros: ${response.recordsProcessed}"
+                    _syncStatusMessage.value = "¡Sincronizado con éxito! Registros procesados: ${response.recordsProcessed}"
                 } else {
                     _syncStatusError.value = true
                     _syncStatusMessage.value = "El backend respondió con error: ${response.message}"
@@ -389,31 +405,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
             } catch (e: Exception) {
                 android.util.Log.e("ScanViewModel", "Sync real connection failed: ", e)
-                if (simulateIfServerOffline) {
-                    // Fallback visual simulation for evaluation
-                    kotlinx.coroutines.delay(1200) // Delay to show nice progress spinner UX!
-                    
-                    // Offline simulation success: Update database records to match Synced state!
-                    unsyncedScans.forEach { scan ->
-                        val currentComments = NotesParser.parse(scan.notes, _registeredUsername.value.ifBlank { "Operador" }, scan.timestamp)
-                        val updatedComments = currentComments.map { comment ->
-                            comment.copy(isSynced = true, remoteId = comment.remoteId ?: "sim_comment_${java.util.UUID.randomUUID().toString().take(6)}")
-                        }
-                        val isFullySynced = scan.exitTime != null
-                        repository.update(scan.copy(
-                            isSynced = isFullySynced,
-                            remoteId = scan.remoteId ?: "sim_record_${java.util.UUID.randomUUID().toString().take(6)}",
-                            notes = NotesParser.toJson(updatedComments)
-                        ))
-                    }
-                    
-                    _isSyncing.value = false
-                    _syncStatusMessage.value = "Sincronización SIMULADA exitosa: Enviados ${unsyncedScans.size} registros nuevos de forma offline segura."
-                } else {
-                    _isSyncing.value = false
-                    _syncStatusError.value = true
-                    _syncStatusMessage.value = "Error de red con el backend: ${e.localizedMessage ?: "Verifica la URL en la Configuración."}"
-                }
+                _isSyncing.value = false
+                _syncStatusError.value = true
+                _syncStatusMessage.value = "Error de conexión con el servidor: ${e.localizedMessage ?: "Verifica la URL en la Configuración."}"
             }
         }
     }
@@ -890,9 +884,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             val updated = existing.toMutableList()
             updated.add(
                 NoteComment(
+                    localId = java.util.UUID.randomUUID().toString(),
+                    remoteId = null,
                     message = newNotes,
                     authorName = author,
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    isSynced = false
                 )
             )
             repository.update(scan.copy(
@@ -906,7 +903,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val author = _registeredUsername.value.ifBlank { "Operador" }
             val existing = NotesParser.parse(scan.notes, author, scan.timestamp)
-            val updated = existing.filter { it.timestamp != commentToDelete.timestamp || it.message != commentToDelete.message }
+            val updated = existing.filter {
+                if (!commentToDelete.localId.isNullOrBlank() && !it.localId.isNullOrBlank()) {
+                    it.localId != commentToDelete.localId
+                } else {
+                    it.timestamp != commentToDelete.timestamp || it.message != commentToDelete.message
+                }
+            }
             repository.update(scan.copy(
                 notes = NotesParser.toJson(updated),
                 isSynced = false
