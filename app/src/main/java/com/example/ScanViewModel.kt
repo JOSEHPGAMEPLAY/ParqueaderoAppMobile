@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
 import java.text.SimpleDateFormat
+import com.example.AppConstants
 
 sealed class ScanUiState {
     object Idle : ScanUiState()
@@ -177,7 +178,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         // Initialize Base API URL in sync service client
         SyncClient.baseApiUrl = _apiBaseUrl.value
         // Safely check for updates upon opening/loading is offline tolerant
-        checkForUpdates("1.0")
+        checkForUpdates(AppConstants.APP_VERSION)
     }
 
     fun updateApiBaseUrl(newUrl: String) {
