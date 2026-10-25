@@ -10,7 +10,9 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PUT
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 
@@ -94,7 +96,8 @@ data class ParkingRecordItem(
     @Json(name = "entryTime") val entryTime: Long,
     @Json(name = "exitTime") val exitTime: Long?,
     @Json(name = "price") val price: Double,
-    @Json(name = "isFree") val isFree: Boolean,
+    @Json(name = "isFree") val isFree: Boolean = false,
+    @Json(name = "hasTicket") val hasTicket: Boolean = true,
     @Json(name = "comments") val comments: List<CommentParkingRecordItem>
 )
 
@@ -144,7 +147,41 @@ data class WebSyncResponse(
     @Json(name = "message") val message: String,
     @Json(name = "recordsProcessed") val recordsProcessed: Int,
     @Json(name = "serverTimestamp") val serverTimestamp: Long,
+    @Json(name = "configVersion") val configVersion: Int? = null,
+    @Json(name = "team") val team: List<TeamRecord> = emptyList(),
     @Json(name = "idMappings") val idMappings: IdMappings? = null
+)
+
+// --- Collaborative (team) models ---
+
+@JsonClass(generateAdapter = true)
+data class TeamRecord(
+    @Json(name = "plateNumber") val plateNumber: String,
+    @Json(name = "entryTimeMillis") val entryTimeMillis: Long,
+    @Json(name = "exitTimeMillis") val exitTimeMillis: Long? = null,
+    @Json(name = "hasTicket") val hasTicket: Boolean = true,
+    @Json(name = "price") val price: Double = 0.0,
+    @Json(name = "operatorName") val operatorName: String? = null,
+    @Json(name = "deviceModel") val deviceModel: String? = null,
+    @Json(name = "updatedAtMillis") val updatedAtMillis: Long? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TeamResponse(
+    @Json(name = "records") val records: List<TeamRecord> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class RemoteCheckoutRequest(
+    @Json(name = "plateNumber") val plateNumber: String,
+    @Json(name = "hasTicket") val hasTicket: Boolean = true,
+    @Json(name = "isFree") val isFree: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class RemoteCheckoutResponse(
+    @Json(name = "price") val price: Double = 0.0,
+    @Json(name = "message") val message: String? = null
 )
 
 // --- Retrofit Endpoints ---
@@ -160,6 +197,22 @@ interface SyncApi {
         @Header("Authorization") bearerToken: String,
         @Body payload: WebSyncPayload
     ): WebSyncResponse
+
+    @GET("api/config")
+    suspend fun getAppConfig(
+        @Header("Authorization") bearerToken: String
+    ): AppConfigEnvelope
+
+    @GET("api/parking/team")
+    suspend fun getTeamRecords(
+        @Header("Authorization") bearerToken: String
+    ): TeamResponse
+
+    @PUT("api/parking/calculateprice")
+    suspend fun checkoutRemoteVehicle(
+        @Header("Authorization") bearerToken: String,
+        @Body request: RemoteCheckoutRequest
+    ): RemoteCheckoutResponse
 }
 
 // --- GitHub Release Models for Update Checker ---
@@ -252,6 +305,37 @@ object SyncClient {
     suspend fun executeRealSync(token: String, payload: WebSyncPayload): WebSyncResponse {
         val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"
         return syncApi.syncData(authHeader, payload)
+    }
+
+    /**
+     * Descarga la configuración central de tarifas y reglas de cobro.
+     */
+    suspend fun executeFetchConfig(token: String): AppRemoteConfig {
+        val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"
+        return syncApi.getAppConfig(authHeader).config
+    }
+
+    /**
+     * Obtiene los vehículos activos compartidos por todos los celulares.
+     */
+    suspend fun executeFetchTeam(token: String): List<TeamRecord> {
+        val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"
+        return syncApi.getTeamRecords(authHeader).records
+    }
+
+    /**
+     * Cierra un vehículo desde cualquier celular usando la placa.
+     */
+    suspend fun executeRemoteCheckout(
+        token: String,
+        plateNumber: String,
+        hasTicket: Boolean
+    ): RemoteCheckoutResponse {
+        val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"
+        return syncApi.checkoutRemoteVehicle(
+            authHeader,
+            RemoteCheckoutRequest(plateNumber = plateNumber, hasTicket = hasTicket)
+        )
     }
 
     /**
