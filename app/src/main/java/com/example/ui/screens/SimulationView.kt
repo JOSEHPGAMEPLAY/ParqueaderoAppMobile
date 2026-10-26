@@ -521,7 +521,8 @@ fun SimulationView(
                     val applyHVal = if (simHasTicket) rateWithTicketHour else rateNoTicketHour
                     val applyFVal = if (simHasTicket) rateWithTicketFraction else rateNoTicketFraction
                     Text(
-                        text = "Ecuación aplicada: $applyHVal COP por hora y $applyFVal COP por fracción de 30 mins.",
+                        text = "Ecuación aplicada: ${AppConstants.formatCurrency(applyHVal.toDouble())} por hora " +
+                            "y ${AppConstants.formatCurrency(applyFVal.toDouble())} por fracción.",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 12.sp

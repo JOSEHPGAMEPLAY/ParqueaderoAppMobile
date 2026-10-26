@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.util.Calendar
 import java.util.Date
 import java.text.SimpleDateFormat
@@ -92,6 +95,47 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _syncStatusError = MutableStateFlow(false)
     val syncStatusError = _syncStatusError.asStateFlow()
+
+    // --- Configuración central (tarifas y reglas) ---
+    private val _remoteConfig = MutableStateFlow(RemoteConfigStore.load(prefs))
+    val remoteConfig = _remoteConfig.asStateFlow()
+
+    private val _configUpdatedAt = MutableStateFlow(RemoteConfigStore.lastUpdatedAt(prefs))
+    val configUpdatedAt = _configUpdatedAt.asStateFlow()
+
+    private val _configError = MutableStateFlow<String?>(null)
+    val configError = _configError.asStateFlow()
+
+    private val _isConfigLoading = MutableStateFlow(false)
+    val isConfigLoading = _isConfigLoading.asStateFlow()
+
+    // Tarifas vigentes en el dispositivo (se derivan de la configuración central)
+    private val _rateWithTicketHour = MutableStateFlow(_remoteConfig.value.rates.withTicket.hour)
+    val rateWithTicketHour = _rateWithTicketHour.asStateFlow()
+
+    private val _rateWithTicketFraction = MutableStateFlow(_remoteConfig.value.rates.withTicket.fraction)
+    val rateWithTicketFraction = _rateWithTicketFraction.asStateFlow()
+
+    private val _rateNoTicketHour = MutableStateFlow(_remoteConfig.value.rates.withoutTicket.hour)
+    val rateNoTicketHour = _rateNoTicketHour.asStateFlow()
+
+    private val _rateNoTicketFraction = MutableStateFlow(_remoteConfig.value.rates.withoutTicket.fraction)
+    val rateNoTicketFraction = _rateNoTicketFraction.asStateFlow()
+
+    // --- Modo colaborativo entre celulares ---
+    private val _collaborativeMode = MutableStateFlow(prefs.getBoolean("collaborative_mode", false))
+    val collaborativeMode = _collaborativeMode.asStateFlow()
+
+    private val _teamRecords = MutableStateFlow<List<TeamRecord>>(emptyList())
+    val teamRecords = _teamRecords.asStateFlow()
+
+    private val _teamLastSync = MutableStateFlow(0L)
+    val teamLastSync = _teamLastSync.asStateFlow()
+
+    private val _teamError = MutableStateFlow<String?>(null)
+    val teamError = _teamError.asStateFlow()
+
+    private var collaborativeJob: Job? = null
 
     // Update checker Flow States
     private val _updateAvailable = MutableStateFlow<GitHubReleaseResponse?>(null)
@@ -175,10 +219,20 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        // La configuración cacheada define la moneda incluso sin conexión.
+        AppConstants.configureCurrency(_remoteConfig.value.currency, _remoteConfig.value.locale)
         // Initialize Base API URL in sync service client
         SyncClient.baseApiUrl = _apiBaseUrl.value
         // Safely check for updates upon opening/loading is offline tolerant
         checkForUpdates(AppConstants.APP_VERSION)
+
+        if (_isRegistered.value && _jwtToken.value.isNotBlank()) {
+            refreshRemoteConfig(silent = true)
+            if (_collaborativeMode.value) {
+                startCollaborativeLoop()
+                refreshTeam(silent = true)
+            }
+        }
     }
 
     fun updateApiBaseUrl(newUrl: String) {
@@ -235,6 +289,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 _jwtToken.value = response.token
                 _isSyncing.value = false
                 _syncStatusMessage.value = "Registro exitoso por API Real"
+                refreshRemoteConfig(silent = true)
+                if (_collaborativeMode.value) {
+                    startCollaborativeLoop()
+                    refreshTeam(silent = true)
+                }
             } catch (e: Exception) {
                 if (simulateIfServerOffline) {
                     // Fallback to simulation to allow testing in AI Studio sandbox!
@@ -333,7 +392,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                             entryTime = scan.timestamp,
                             exitTime = scan.exitTime,
                             price = scan.paidAmount ?: 0.0,
-                            isFree = !scan.hasTicket,
+                            isFree = false,
+                            hasTicket = scan.hasTicket,
                             comments = commentsPayload
                         )
                     }
@@ -398,6 +458,17 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                             notes = NotesParser.toJson(updatedComments)
                         ))
                     }
+                    if (response.team.isNotEmpty()) {
+                        _teamRecords.value = response.team
+                        _teamLastSync.value = System.currentTimeMillis()
+                    }
+                    val serverConfigVersion = response.configVersion ?: 0
+                    if (serverConfigVersion > _remoteConfig.value.version) {
+                        refreshRemoteConfig(silent = true)
+                    }
+                    if (_collaborativeMode.value) {
+                        refreshTeam(silent = true)
+                    }
                     _syncStatusMessage.value = "¡Sincronizado con éxito! Registros procesados: ${response.recordsProcessed}"
                 } else {
                     _syncStatusError.value = true
@@ -424,55 +495,179 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _registeredUsername.value = ""
         _jwtToken.value = ""
         _syncStatusMessage.value = "Dispositivo desvinculado de la nube"
+        collaborativeJob?.cancel()
+        collaborativeJob = null
+        _collaborativeMode.value = false
+        prefs.edit().putBoolean("collaborative_mode", false).apply()
+        _teamRecords.value = emptyList()
     }
 
-    private val _rateWithTicketHour = MutableStateFlow(prefs.getInt("rate_with_ticket_hour", 2000))
-    val rateWithTicketHour = _rateWithTicketHour.asStateFlow()
+    /**
+     * Descarga la configuración central administrada desde la web.
+     * Si falla, la app conserva la última configuración cacheada y sigue offline.
+     */
+    fun refreshRemoteConfig(silent: Boolean = false) {
+        val token = _jwtToken.value
+        if (token.isBlank()) {
+            if (!silent) {
+                _configError.value = "Registra el dispositivo para recibir la configuración central."
+            }
+            return
+        }
 
-    private val _rateWithTicketFraction = MutableStateFlow(prefs.getInt("rate_with_ticket_fraction", 1000))
-    val rateWithTicketFraction = _rateWithTicketFraction.asStateFlow()
+        viewModelScope.launch {
+            _isConfigLoading.value = true
+            try {
+                val config = SyncClient.executeFetchConfig(token)
+                val now = System.currentTimeMillis()
+                RemoteConfigStore.save(prefs, config, now)
+                _remoteConfig.value = config
+                _configUpdatedAt.value = now
+                _configError.value = null
+                AppConstants.configureCurrency(config.currency, config.locale)
+                applyRatesFromConfig(config)
+                if (!silent) {
+                    _syncStatusError.value = false
+                    _syncStatusMessage.value =
+                        "Configuración v${config.version} recibida desde la web."
+                }
+            } catch (e: Exception) {
+                _configError.value =
+                    "No se pudo actualizar la configuración. Se usa la última versión guardada."
+                android.util.Log.e("ScanViewModel", "Config fetch failed: ${e.message}")
+            } finally {
+                _isConfigLoading.value = false
+            }
+        }
+    }
 
-    private val _rateNoTicketHour = MutableStateFlow(prefs.getInt("rate_no_ticket_hour", 4000))
-    val rateNoTicketHour = _rateNoTicketHour.asStateFlow()
-
-    private val _rateNoTicketFraction = MutableStateFlow(prefs.getInt("rate_no_ticket_fraction", 2000))
-    val rateNoTicketFraction = _rateNoTicketFraction.asStateFlow()
-
-    fun updateRates(withTicketHour: Int, withTicketFraction: Int, noTicketHour: Int, noTicketFraction: Int) {
+    private fun applyRatesFromConfig(config: AppRemoteConfig) {
+        val withTicket = config.rates.withTicket
+        val withoutTicket = config.rates.withoutTicket
         prefs.edit().apply {
-            putInt("rate_with_ticket_hour", withTicketHour)
-            putInt("rate_with_ticket_fraction", withTicketFraction)
-            putInt("rate_no_ticket_hour", noTicketHour)
-            putInt("rate_no_ticket_fraction", noTicketFraction)
+            putInt(AppConstants.PREF_RATE_WITH_TICKET_HOUR, withTicket.hour)
+            putInt(AppConstants.PREF_RATE_WITH_TICKET_FRACTION, withTicket.fraction)
+            putInt(AppConstants.PREF_RATE_NO_TICKET_HOUR, withoutTicket.hour)
+            putInt(AppConstants.PREF_RATE_NO_TICKET_FRACTION, withoutTicket.fraction)
             apply()
         }
-        _rateWithTicketHour.value = withTicketHour
-        _rateWithTicketFraction.value = withTicketFraction
-        _rateNoTicketHour.value = noTicketHour
-        _rateNoTicketFraction.value = noTicketFraction
+        _rateWithTicketHour.value = withTicket.hour
+        _rateWithTicketFraction.value = withTicket.fraction
+        _rateNoTicketHour.value = withoutTicket.hour
+        _rateNoTicketFraction.value = withoutTicket.fraction
+    }
+
+    fun setCollaborativeMode(enabled: Boolean) {
+        if (enabled && !_remoteConfig.value.mobile.collaborativeSyncEnabled) {
+            _teamError.value = "El administrador desactivó el modo colaborativo."
+            return
+        }
+        prefs.edit().putBoolean("collaborative_mode", enabled).apply()
+        _collaborativeMode.value = enabled
+        if (enabled) {
+            startCollaborativeLoop()
+            refreshTeam(silent = false)
+        } else {
+            collaborativeJob?.cancel()
+            collaborativeJob = null
+            _teamRecords.value = emptyList()
+            _teamError.value = null
+        }
+    }
+
+    private fun startCollaborativeLoop() {
+        collaborativeJob?.cancel()
+        if (!_collaborativeMode.value) return
+
+        collaborativeJob = viewModelScope.launch {
+            while (isActive) {
+                if (_jwtToken.value.isNotBlank()) {
+                    refreshRemoteConfig(silent = true)
+                    if (scanHistory.value.any { !it.isSynced }) {
+                        syncWithBackend()
+                    }
+                    refreshTeam(silent = true)
+                }
+                val interval = _remoteConfig.value.mobile.syncIntervalSeconds
+                    .coerceIn(10, 600)
+                delay(interval * 1000L)
+            }
+        }
+    }
+
+    /**
+     * Consulta los vehículos activos de todos los celulares vinculados.
+     */
+    fun refreshTeam(silent: Boolean = false) {
+        val token = _jwtToken.value
+        if (token.isBlank()) {
+            if (!silent) _teamError.value = "Registra el dispositivo para ver el equipo."
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val records = SyncClient.executeFetchTeam(token)
+                _teamRecords.value = records
+                _teamLastSync.value = System.currentTimeMillis()
+                _teamError.value = null
+            } catch (e: Exception) {
+                _teamError.value =
+                    "No se pudo consultar el equipo. Revisa la conexión o la URL del backend."
+                android.util.Log.e("ScanViewModel", "Team fetch failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Cobra un vehículo compartido por otro celular. El backend calcula el
+     * precio con la configuración central para evitar diferencias.
+     */
+    fun checkoutRemoteVehicle(
+        record: TeamRecord,
+        hasTicket: Boolean,
+        onResult: (Double?) -> Unit
+    ) {
+        val token = _jwtToken.value
+        if (token.isBlank()) {
+            onResult(null)
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val response = SyncClient.executeRemoteCheckout(
+                    token,
+                    record.plateNumber,
+                    hasTicket
+                )
+                val match = scanHistory.value.firstOrNull {
+                    it.plateText.equals(record.plateNumber, ignoreCase = true) &&
+                        it.status == "ACTIVE"
+                }
+                if (match != null) {
+                    repository.update(
+                        match.copy(
+                            exitTime = System.currentTimeMillis(),
+                            hasTicket = hasTicket,
+                            paidAmount = response.price,
+                            status = "COMPLETED",
+                            isSynced = true
+                        )
+                    )
+                }
+                refreshTeam(silent = true)
+                onResult(response.price)
+            } catch (e: Exception) {
+                android.util.Log.e("ScanViewModel", "Remote checkout failed: ${e.message}")
+                _teamError.value = "No se pudo cobrar ${record.plateNumber}."
+                onResult(null)
+            }
+        }
     }
 
     fun calculateParkingFee(entryTimeMs: Long, exitTimeMs: Long, hasTicket: Boolean): Double {
-        val durationMs = exitTimeMs - entryTimeMs
-        val durationMinutes = durationMs / (1000 * 60)
-        
-        val hourRate = if (hasTicket) rateWithTicketHour.value else rateNoTicketHour.value
-        val fractionRate = if (hasTicket) rateWithTicketFraction.value else rateNoTicketFraction.value
-        
-        if (durationMinutes <= 0) return 0.0
-        if (durationMinutes <= 30) return fractionRate.toDouble()
-        if (durationMinutes <= 60) return hourRate.toDouble()
-        
-        val fullHours = durationMinutes / 60
-        val remainingMinutes = durationMinutes % 60
-        
-        val extraCharge = when {
-            remainingMinutes <= 0 -> 0.0
-            remainingMinutes <= 30 -> fractionRate.toDouble()
-            else -> hourRate.toDouble()
-        }
-        
-        return (fullHours * hourRate).toDouble() + extraCharge
+        return _remoteConfig.value.calculateFee(entryTimeMs, exitTimeMs, hasTicket)
     }
 
     // Checkout vehicle to register exit

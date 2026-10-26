@@ -80,126 +80,67 @@ fun AutoRecordsView(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Operational Metrics Cards Row
+        // Operational Metrics Cards Row (adaptable a pantallas angostas)
         item {
             val activeCount = scanHistory.count { it.status == "ACTIVE" }
             val completedCount = scanHistory.count { it.status == "COMPLETED" }
             val totalRevenue = scanHistory.sumOf { it.paidAmount ?: 0.0 }
 
-            Row(
+            val inLotCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                MetricCard(
+                    modifier = cardModifier,
+                    label = "En Parqueadero",
+                    value = "$activeCount",
+                    icon = Icons.Filled.DirectionsCar,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    accentColor = MaterialTheme.colorScheme.primary
+                )
+            }
+            val exitsCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                MetricCard(
+                    modifier = cardModifier,
+                    label = "Salidas Hoy",
+                    value = "$completedCount",
+                    icon = Icons.Filled.CheckCircle,
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    accentColor = MaterialTheme.colorScheme.tertiary
+                )
+            }
+            val revenueCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                MetricCard(
+                    modifier = cardModifier,
+                    label = "Total Recaudado (App)",
+                    value = AppConstants.formatCurrency(totalRevenue),
+                    icon = Icons.Filled.Payment,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    accentColor = MaterialTheme.colorScheme.secondary,
+                    valueFontSize = 15
+                )
+            }
+
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(vertical = 4.dp)
             ) {
-                // Vehículos Adentro
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.DirectionsCar,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "En Parqueadero",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                if (maxWidth < 400.dp) {
+                    // Pantallas compactas: dos indicadores arriba y el recaudo
+                    // a todo el ancho para que el monto no se corte.
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            inLotCard(Modifier.weight(1f))
+                            exitsCard(Modifier.weight(1f))
                         }
-                        Text(
-                            text = "$activeCount",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        revenueCard(Modifier.fillMaxWidth())
                     }
-                }
-
-                // Salidas
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Salidas Hoy",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = "$completedCount",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    }
-                }
-
-                // Ingreso Total
-                Card(
-                    modifier = Modifier.weight(1.3f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.Payment,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Total Recaudado (App)",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = AppConstants.formatCurrency(totalRevenue),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        inLotCard(Modifier.weight(1f))
+                        exitsCard(Modifier.weight(1f))
+                        revenueCard(Modifier.weight(1.3f))
                     }
                 }
             }
@@ -1082,6 +1023,60 @@ fun AutoRecordsView(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Tarjeta compacta de indicador. Se usa tanto en el layout horizontal como en
+ * el vertical para pantallas angostas.
+ */
+@Composable
+private fun MetricCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    containerColor: Color,
+    contentColor: Color,
+    accentColor: Color,
+    valueFontSize: Int = 18
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = label,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = value,
+                fontSize = valueFontSize.sp,
+                fontWeight = FontWeight.Black,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

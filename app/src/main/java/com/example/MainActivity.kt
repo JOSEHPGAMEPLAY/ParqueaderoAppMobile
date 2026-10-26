@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,6 +48,7 @@ import com.example.ui.screens.DeviceRegistrationView
 import com.example.ui.screens.RatesView
 import com.example.ui.screens.SimulationView
 import com.example.ui.screens.SynchronizationView
+import com.example.ui.screens.TeamView
 import com.example.ui.theme.MyApplicationTheme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -88,6 +90,7 @@ class MainActivity : ComponentActivity() {
 
 enum class ScreenSection {
     CAR_RECORDS,
+    TEAM,
     SYNCHRONIZATION,
     RATES,
     SIMULATION
@@ -129,19 +132,11 @@ fun MainScreen(
     val rateWithTicketFraction by viewModel.rateWithTicketFraction.collectAsStateWithLifecycle()
     val rateNoTicketHour by viewModel.rateNoTicketHour.collectAsStateWithLifecycle()
     val rateNoTicketFraction by viewModel.rateNoTicketFraction.collectAsStateWithLifecycle()
-
-    // Parking rates text states
-    var editWithHour by remember { mutableStateOf("") }
-    var editWithFraction by remember { mutableStateOf("") }
-    var editNoHour by remember { mutableStateOf("") }
-    var editNoFraction by remember { mutableStateOf("") }
-
-    LaunchedEffect(rateWithTicketHour, rateWithTicketFraction, rateNoTicketHour, rateNoTicketFraction) {
-        editWithHour = rateWithTicketHour.toString()
-        editWithFraction = rateWithTicketFraction.toString()
-        editNoHour = rateNoTicketHour.toString()
-        editNoFraction = rateNoTicketFraction.toString()
-    }
+    val remoteConfig by viewModel.remoteConfig.collectAsStateWithLifecycle()
+    val configUpdatedAt by viewModel.configUpdatedAt.collectAsStateWithLifecycle()
+    val configError by viewModel.configError.collectAsStateWithLifecycle()
+    val isConfigLoading by viewModel.isConfigLoading.collectAsStateWithLifecycle()
+    val collaborativeMode by viewModel.collaborativeMode.collectAsStateWithLifecycle()
 
     // Checkout dialogue targets
     var checkoutVehicleTarget by remember { mutableStateOf<ScanResult?>(null) }
@@ -278,6 +273,18 @@ fun MainScreen(
                 )
 
                 NavigationDrawerItem(
+                    label = { Text("Equipo en Vivo", fontWeight = FontWeight.Bold) },
+                    selected = currentSection == ScreenSection.TEAM,
+                    onClick = {
+                        currentSection = ScreenSection.TEAM
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = { Icon(Icons.Filled.Groups, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                NavigationDrawerItem(
                     label = { Text("Sincronización Web", fontWeight = FontWeight.Bold) },
                     selected = currentSection == ScreenSection.SYNCHRONIZATION,
                     onClick = {
@@ -290,7 +297,7 @@ fun MainScreen(
                 )
 
                 NavigationDrawerItem(
-                    label = { Text("Configurar Tarifas", fontWeight = FontWeight.Bold) },
+                    label = { Text("Tarifas y Reglas", fontWeight = FontWeight.Bold) },
                     selected = currentSection == ScreenSection.RATES,
                     onClick = {
                         currentSection = ScreenSection.RATES
@@ -358,6 +365,40 @@ fun MainScreen(
                                 color = if (registeredUsername.isNotEmpty()) Color(0xFF1B5E20) else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (collaborativeMode)
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                    else
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (collaborativeMode) Icons.Filled.Groups else Icons.Filled.Person,
+                                contentDescription = null,
+                                tint = if (collaborativeMode)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (collaborativeMode) "Equipo compartido activo" else "Solo este celular",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (collaborativeMode)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -365,8 +406,9 @@ fun MainScreen(
     ) {
         val appTitle = when (currentSection) {
             ScreenSection.CAR_RECORDS -> "Registros de Autos"
+            ScreenSection.TEAM -> "Equipo en Vivo"
             ScreenSection.SYNCHRONIZATION -> "Sincronización Web"
-            ScreenSection.RATES -> "Tarifas de Parqueadero"
+            ScreenSection.RATES -> "Tarifas y Reglas"
             ScreenSection.SIMULATION -> "Panel de Simulación"
         }
 
@@ -385,7 +427,10 @@ fun MainScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             IconButton(
                                 onClick = { scope.launch { drawerState.open() } },
                                 modifier = Modifier.testTag("menu_hamburger_car_button")
@@ -402,7 +447,9 @@ fun MainScreen(
                                 text = appTitle,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -472,6 +519,9 @@ fun MainScreen(
                             }
                         )
                     }
+                    ScreenSection.TEAM -> {
+                        TeamView(viewModel = viewModel)
+                    }
                     ScreenSection.SYNCHRONIZATION -> {
                         SynchronizationView(
                             viewModel = viewModel,
@@ -481,20 +531,11 @@ fun MainScreen(
                     ScreenSection.RATES -> {
                         RatesView(
                             viewModel = viewModel,
-                            context = context,
-                            editWithHour = editWithHour,
-                            setEditWithHour = { editWithHour = it },
-                            editWithFraction = editWithFraction,
-                            setEditWithFraction = { editWithFraction = it },
-                            editNoHour = editNoHour,
-                            setEditNoHour = { editNoHour = it },
-                            editNoFraction = editNoFraction,
-                            setEditNoFraction = { editNoFraction = it },
-                            rateWithTicketHour = rateWithTicketHour,
-                            rateWithTicketFraction = rateWithTicketFraction,
-                            rateNoTicketHour = rateNoTicketHour,
-                            rateNoTicketFraction = rateNoTicketFraction,
-                            keyboardController = keyboardController
+                            config = remoteConfig,
+                            updatedAt = configUpdatedAt,
+                            configError = configError,
+                            isRefreshing = isConfigLoading,
+                            onRefresh = { viewModel.refreshRemoteConfig() }
                         )
                     }
                     ScreenSection.SIMULATION -> {
@@ -843,7 +884,8 @@ fun MainScreen(
                     val appliedHourRate = if (checkoutHasTicket) rateWithTicketHour else rateNoTicketHour
                     val appliedFractionRate = if (checkoutHasTicket) rateWithTicketFraction else rateNoTicketFraction
                     Text(
-                        text = "Tarifa parametrizada: $appliedHourRate COP / hora y $appliedFractionRate COP / media hora.",
+                        text = "Tarifa parametrizada: ${AppConstants.formatCurrency(appliedHourRate.toDouble())} / hora " +
+                            "y ${AppConstants.formatCurrency(appliedFractionRate.toDouble())} / fracción.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 14.sp
