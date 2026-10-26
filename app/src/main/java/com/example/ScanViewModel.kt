@@ -219,6 +219,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        // La configuración cacheada define la moneda incluso sin conexión.
+        AppConstants.configureCurrency(_remoteConfig.value.currency, _remoteConfig.value.locale)
         // Initialize Base API URL in sync service client
         SyncClient.baseApiUrl = _apiBaseUrl.value
         // Safely check for updates upon opening/loading is offline tolerant
@@ -522,6 +524,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 _remoteConfig.value = config
                 _configUpdatedAt.value = now
                 _configError.value = null
+                AppConstants.configureCurrency(config.currency, config.locale)
                 applyRatesFromConfig(config)
                 if (!silent) {
                     _syncStatusError.value = false

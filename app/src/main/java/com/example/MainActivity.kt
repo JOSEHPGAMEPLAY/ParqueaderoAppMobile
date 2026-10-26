@@ -884,7 +884,8 @@ fun MainScreen(
                     val appliedHourRate = if (checkoutHasTicket) rateWithTicketHour else rateNoTicketHour
                     val appliedFractionRate = if (checkoutHasTicket) rateWithTicketFraction else rateNoTicketFraction
                     Text(
-                        text = "Tarifa parametrizada: $appliedHourRate COP / hora y $appliedFractionRate COP / media hora.",
+                        text = "Tarifa parametrizada: ${AppConstants.formatCurrency(appliedHourRate.toDouble())} / hora " +
+                            "y ${AppConstants.formatCurrency(appliedFractionRate.toDouble())} / fracción.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 14.sp

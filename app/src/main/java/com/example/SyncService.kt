@@ -158,7 +158,6 @@ data class WebSyncResponse(
 data class TeamRecord(
     @Json(name = "plateNumber") val plateNumber: String,
     @Json(name = "entryTimeMillis") val entryTimeMillis: Long,
-    @Json(name = "exitTimeMillis") val exitTimeMillis: Long? = null,
     @Json(name = "hasTicket") val hasTicket: Boolean = true,
     @Json(name = "price") val price: Double = 0.0,
     @Json(name = "operatorName") val operatorName: String? = null,
