@@ -16,7 +16,7 @@ El sistema permite capturar la matrícula de un automóvil mediante tres flujos 
 * **Lectura Automática de Matrículas (ALPR - Automatic License Plate Recognition)**: Extracción ultra rápida de caracteres alfanuméricos mediante reconocimiento óptico de caracteres (OCR) ejecutado en el chip local del dispositivo.
 * **Procesamiento de Alto Rendimiento 100% Offline**: Eliminación completa de peticiones de red y modelos multimodales remotos (como Gemini API) para garantizar latencia de milisegundos, máximo ahorro de datos móviles, privacidad de datos vehiculares y un funcionamiento idóneo incluso en sótanos de estacionamiento sin señal celular.
 * **Clasificador Determínístico de Atributos**: Generación matemática coherente de marcas y colores de vehículos en el dispositivo mediante técnicas de hashing para poblar la base de datos de manera uniforme.
-* **Motor Tributario y de Cobros (Tarifador)**: Cálculo automático de montos adeudados con base en el tiempo transcurrido (horas completas y fracciones de media hora) y tipologías tarifarias personalizables (Con Ticket vs. Registro Manual).
+* **Motor Tributario y de Cobros (Tarifador)**: Cálculo automático de montos adeudados con base en el tiempo transcurrido (horas completas más una fracción que solo se cobra al superar el umbral configurado) y tipologías tarifarias configurables desde la web (Con Ticket vs. Registro Manual). Las tarifas, el mínimo de horas, los minutos gratis y la moneda se descargan de la configuración central y se cachean para operar sin conexión.
 * **Base de Datos Local y Control de Historial**: Gestión de inventario de vehículos activos del parqueadero (Vehículos Adentro) y bitácora de salidas persistida en SQLite mediante Room.
 
 ---
