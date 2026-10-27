@@ -17,6 +17,20 @@ android {
     versionCode = 2
     versionName = "1.1.0"
 
+    // URL base por defecto de la API. Se puede inyectar al compilar sin tocar código:
+    //   ./gradlew :app:assembleRelease -PapiBaseUrl=https://mi-backend.vercel.app/
+    // o con la variable de entorno API_BASE_URL. Si no se define, apunta al backend
+    // local del emulador (http://10.0.2.2:3000/).
+    val apiBaseUrl =
+        listOfNotNull(
+                (project.findProperty("apiBaseUrl") as String?)?.takeIf { it.isNotBlank() },
+                System.getenv("API_BASE_URL")?.takeIf { it.isNotBlank() },
+            )
+            .firstOrNull()
+            ?.let { if (it.endsWith("/")) it else "$it/" }
+            ?: "http://10.0.2.2:3000/"
+    buildConfigField("String", "DEFAULT_API_BASE_URL", "\"$apiBaseUrl\"")
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 

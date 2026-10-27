@@ -248,7 +248,7 @@ object SyncClient {
 
     // Dynamic Base URL that can be altered by user in settings.
     // Default is a standard node express development address.
-    var baseApiUrl: String = "http://10.0.2.2:3000/" // 10.0.2.2 points to host machine from android emulator
+    var baseApiUrl: String = AppConstants.DEFAULT_API_BASE_URL // 10.0.2.2 points to host machine from android emulator
         set(value) {
             val formatted = if (value.endsWith("/")) value else "$value/"
             field = formatted
