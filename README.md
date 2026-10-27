@@ -106,11 +106,24 @@ La aplicación soporta un modelo de integración robusto con un servidor backend
 4. Conecta tu teléfono Android mediante depuración USB o enciende el emulador.
 5. Haz clic en el botón **Run** (`Shift + F10`) en Android Studio para compilar e instalar la aplicación en el dispositivo.
 
+### Compilar un release
+
+```bash
+# APK para instalar a mano
+./gradlew :app:assembleRelease -PapiBaseUrl=https://tu-backend.vercel.app/
+
+# AAB para Google Play
+./gradlew :app:bundleRelease -PapiBaseUrl=https://tu-backend.vercel.app/
+```
+
+La URL base por defecto se inyecta en el build con `-PapiBaseUrl=…` (o la variable de entorno `API_BASE_URL`); sin ese valor la app apunta al backend local del emulador (`http://10.0.2.2:3000/`). Las instrucciones completas de publicación están en [PLAY_CONSOLE.md](PLAY_CONSOLE.md).
+
 ---
 
 ## 🔒 Permisos Requeridos
 
 La aplicación solicita dinámicamente los siguientes accesos para asegurar su correcto funcionamiento:
-* `android.permission.CAMERA`: Requerido para capturar fotos de patentes en vivo en el módulo de escaneo.
-* `android.permission.READ_MEDIA_IMAGES` / `WRITE_EXTERNAL_STORAGE`: Utilizados de forma segura para seleccionar imágenes de la galería local y persistir capturas temporales del parqueadero.
+* `android.permission.CAMERA`: Requerido para capturar patentes en vivo en el módulo de escaneo. La funcionalidad de cámara no es obligatoria (`uses-feature required="false"`).
 * `android.permission.INTERNET`: Necesario para realizar solicitudes de sincronización de lotes con el backend remoto.
+
+> La app **no** solicita permisos de almacenamiento ni de galería: las imágenes se procesan en memoria y no se persisten.

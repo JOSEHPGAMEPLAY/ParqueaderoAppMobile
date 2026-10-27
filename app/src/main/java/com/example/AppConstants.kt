@@ -15,7 +15,11 @@ object AppConstants {
     val APP_VERSION: String = BuildConfig.VERSION_NAME
 
     // Network & Backend Defaults
-    const val DEFAULT_API_BASE_URL = "http://10.0.2.2:3000/"
+    /**
+     * URL base por defecto de la API. Se define en `app/build.gradle.kts` y puede
+     * sobreescribirse al compilar con `-PapiBaseUrl=...` o `API_BASE_URL`.
+     */
+    val DEFAULT_API_BASE_URL: String = BuildConfig.DEFAULT_API_BASE_URL
     const val DEFAULT_GITHUB_RELEASE_URL = "https://api.github.com/repos/JOSEHPGAMEPLAY/ParqueaderoAppMobile/releases/latest"
 
     // SharedPreferences Keys

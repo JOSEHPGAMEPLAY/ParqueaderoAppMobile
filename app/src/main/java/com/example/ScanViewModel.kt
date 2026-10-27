@@ -83,7 +83,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private val _jwtToken = MutableStateFlow(prefs.getString("jwt_token", "") ?: "")
     val jwtToken = _jwtToken.asStateFlow()
 
-    private val _apiBaseUrl = MutableStateFlow(prefs.getString("api_base_url", "http://10.0.2.2:3000/") ?: "http://10.0.2.2:3000/")
+    private val _apiBaseUrl = MutableStateFlow(prefs.getString("api_base_url", AppConstants.DEFAULT_API_BASE_URL) ?: AppConstants.DEFAULT_API_BASE_URL)
     val apiBaseUrl = _apiBaseUrl.asStateFlow()
 
     // Sync UI progress flows
